@@ -6,6 +6,12 @@ pub struct BitArray {
 }
 
 impl BitArray {
+    pub fn new_empty() -> Self {
+        Self {
+            words: vec![],
+            len: 0,
+        }
+    }
     pub fn new(len: u32) -> Self {
         // ceiling division — e.g. 33 bits needs 2 words
         let words = (len + 31) / 32;
@@ -13,6 +19,10 @@ impl BitArray {
             words: vec![0; words as usize],
             len,
         }
+    }
+
+    pub fn len(&self) -> u32 {
+        self.len
     }
 
     pub fn get(&self, i: u32) -> bool {

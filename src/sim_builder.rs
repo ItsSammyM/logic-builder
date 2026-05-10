@@ -234,3 +234,8 @@ pub fn build_simulation(
         output_wires: sim_output_wire_ids,
     })
 }
+
+
+pub fn read_wire_by_index(simulation: &Simulation, wire_index: u32) -> bool {
+    WireId(wire_index).current_value(&simulation.wire_states)
+}

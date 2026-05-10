@@ -8,7 +8,7 @@ impl WireId{
     fn next_value(&self, state: &WireState)->bool{
         state.get_next(*self)
     }
-    fn current_value(&self, state: &WireState)->bool{
+    pub fn current_value(&self, state: &WireState)->bool{
         state.get_current(*self)
     }
     fn set_next(&self, state: &mut WireState, value: bool) {
