@@ -1,0 +1,33 @@
+2 Layered model
+Editor Layer - For the user, contains information about the view, text, positions of gates, etc
+Simulation Layer
+
+# Editor Layer
+Has positions of nodes, titles of nodes.
+SkipNode - A node that doesnt exist, any gate getting this gates state actually just gets the state of the previous gate
+
+# Simulation Layer
+NodeKind
+├── Constant              — no inputs, fixed output, never dirty
+├── Nand                  — universal primitive
+├── Identity              — explicit 1-tick delay (possibly just sugar for CombinationalLut)
+├── CombinationalLut      — compiled acyclic subgraph, with a set delay - meaning we must store a queue of calculated ouputs
+├── StatefulLut           — compiled cyclic subgraph, Map<(Input, InternalState), (Output, NextInternalState)>
+├── Graph                 — nested simulation
+└── External              — Editor passes in a function that decides how state is calculated
+
+
+
+In simulation layer, but managed by editor layer sadly
+pub enum ExternalNodeKind {
+    Switch    { state: bool },
+    UserInput { binding: InputBinding, current: bool },
+    File      { data: Vec<u8> },
+    Screen    { buffer: ScreenBuffer },
+}
+
+-- Avoid updating every node every tick
+A node only needs updating If either an input changes or its internal state changes.
+
+Store a list of "Dirty nodes".
+Detect what wires changed, and then find out what gates need to be "dirty"/updated next frame.
