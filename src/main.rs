@@ -1087,21 +1087,27 @@ impl App {
         }
     }
 
-    fn save_library_to_file(&self) {
-        fn fallible_save(lib: &Vec<LibraryGate>) -> Option<()> {
+    fn save_library_to_file(&mut self) {
+        fn fallible_save(lib: &Vec<LibraryGate>) -> Result<(), &'static str> {
             bincode::serialize_into(
-                std::fs::File::create("my_library.logic_builder_lib").ok()?,
+                std::fs::File::create("my_library.logic_builder_lib").map_err(|_|"failed to create or open file to save library")?,
                 &lib,
-            ).ok()
+            ).map_err(|_|"failed to serialize library for saving")
         }
-        fallible_save(&self.library).unwrap();
+        match fallible_save(&self.library) {
+            Ok(_) => (),
+            Err(err) => self.simulation_error = Some(err.to_string()),
+        }
     }
     fn load_library_from_file(&mut self) {
-        fn fallible_load() -> Option<Vec<LibraryGate>> {
-            bincode::deserialize_from(std::fs::File::open("my_library.logic_builder_lib").ok()?).ok()
+        fn fallible_load() -> Result<Vec<LibraryGate>, &'static str> {
+            bincode::deserialize_from(std::fs::File::open("my_library.logic_builder_lib")
+                .map_err(|_|"failed to open file to load library")?)
+                .map_err(|_|"failed to deserialize library on load")
         }
-        if let Some(library) = fallible_load() {
-            self.library = library;
+        match fallible_load() {
+            Ok(library) => self.library = library,
+            Err(err) => self.simulation_error = Some(err.to_string()),
         }
     }
 
