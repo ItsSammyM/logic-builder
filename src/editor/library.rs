@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use bincode::Options;
 
+use bincode::Options;
+
 use super::app::App;
 use super::graph::{EditorGraph, EditorNodeKind, LibraryGate};
 
