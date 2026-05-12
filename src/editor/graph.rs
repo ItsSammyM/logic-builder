@@ -151,6 +151,33 @@ impl EditorGraph {
     // (not a stable handle), so removing any node shifts the ids of everything
     // that follows it.  Every removal must rewrite all wire node-ids accordingly.
 
+    /// Add a new input port at the end of the list and fix up all wire node-ids.
+    pub fn add_input(&mut self, name: String) {
+        // The new input will take this node-id, which currently belongs to the first output.
+        let new_node_id = self.inputs.len();
+        // Any wire referencing a node-id >= new_node_id must be incremented by 1,
+        // because adding one input shifts every output and every gate up by one
+        // in the flat id space.
+        for wire in &mut self.wires {
+            if wire.from.node >= new_node_id { wire.from.node += 1; }
+            if wire.to.node   >= new_node_id { wire.to.node   += 1; }
+        }
+        self.inputs.push(name);
+    }
+
+    /// Add a new output port at the end of the list and fix up all wire node-ids.
+    pub fn add_output(&mut self, name: String) {
+        // The new output will take this node-id, which currently belongs to the first gate.
+        let new_node_id = self.inputs.len() + self.outputs.len();
+        // Any wire referencing a node-id >= new_node_id must be incremented by 1,
+        // because adding one output shifts every gate up by one in the flat id space.
+        for wire in &mut self.wires {
+            if wire.from.node >= new_node_id { wire.from.node += 1; }
+            if wire.to.node   >= new_node_id { wire.to.node   += 1; }
+        }
+        self.outputs.push(name);
+    }
+
     /// Remove an input at position `input_index` and fix up all wire node-ids.
     pub fn remove_input(&mut self, input_index: usize) {
         let removed_node_id = self.input_node_id(input_index);
@@ -208,10 +235,6 @@ impl EditorGraph {
 
     /// Move the input at `old_index` to `new_index`, sliding the items in between,
     /// and rewrite all wire node-ids so wires stay connected to the same logical port.
-    ///
-    /// Input node-ids are just their index (0..inputs.len()), so moving one input
-    /// is a permutation of those ids.  We build an explicit old→new mapping and
-    /// apply it to every wire endpoint that falls in the input range.
     pub fn reorder_input(&mut self, old_index: usize, new_index: usize) {
         if old_index == new_index
             || old_index >= self.inputs.len()
@@ -220,25 +243,18 @@ impl EditorGraph {
             return;
         }
 
-        // Compute the new node-id for each old input node-id under the rotation.
-        // After Vec::rotate_left(1) on [old..=new], the item at old_index ends up
-        // at new_index and everything in between shifts left by one.
-        // After Vec::rotate_right(1) on [new..=old], the item at old_index ends up
-        // at new_index and everything in between shifts right by one.
         let permuted_input_node_id = |node_id: usize| -> usize {
             if node_id >= self.inputs.len() {
-                return node_id; // not an input node, unchanged
+                return node_id;
             }
             if node_id == old_index {
                 return new_index;
             }
             if old_index < new_index {
-                // items in (old_index, new_index] slide left
                 if node_id > old_index && node_id <= new_index {
                     return node_id - 1;
                 }
             } else {
-                // items in [new_index, old_index) slide right
                 if node_id >= new_index && node_id < old_index {
                     return node_id + 1;
                 }
@@ -260,9 +276,6 @@ impl EditorGraph {
 
     /// Move the output at `old_index` to `new_index`, sliding the items in between,
     /// and rewrite all wire node-ids so wires stay connected to the same logical port.
-    ///
-    /// Output node-ids are `inputs.len() + output_index`, so we apply the same
-    /// permutation logic, offset by `inputs.len()`.
     pub fn reorder_output(&mut self, old_index: usize, new_index: usize) {
         if old_index == new_index
             || old_index >= self.outputs.len()
@@ -276,7 +289,7 @@ impl EditorGraph {
 
         let permuted_output_node_id = |node_id: usize| -> usize {
             if node_id < input_count || node_id >= input_count + output_count {
-                return node_id; // not an output node, unchanged
+                return node_id;
             }
             let output_index = node_id - input_count;
             if output_index == old_index {
@@ -308,9 +321,6 @@ impl EditorGraph {
 
     /// Remove all gate nodes whose kind is `SavedGate(library_index)`,
     /// along with every wire connected to them, and fix up the remaining wire node-ids.
-    ///
-    /// Gates are removed in reverse-index order so each removal does not invalidate
-    /// the indices of gates still to be removed.
     pub fn remove_all_gates_of_library_index(&mut self, library_index: usize) {
         let gate_indices_to_remove: Vec<usize> = self
             .nodes
@@ -333,8 +343,6 @@ impl EditorGraph {
 
     /// After a library entry has been removed at `deleted_library_index`, decrement
     /// every `SavedGate` reference whose index is above `deleted_library_index`.
-    /// Gates that referenced exactly `deleted_library_index` must already have been
-    /// removed by `remove_all_gates_of_library_index` before calling this.
     pub fn remap_saved_gate_indices_after_library_deletion(
         &mut self,
         deleted_library_index: usize,
@@ -353,23 +361,17 @@ impl EditorGraph {
 //  BulkWireState — state machine for the Shift+drag box-select bulk-wiring feature
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Which phase of the box-select bulk-wire operation we are in.
 #[derive(Clone, Debug, Default)]
 pub enum BulkWireState {
-    /// Nothing happening.
     #[default]
     Idle,
-    /// User is dragging a selection box to choose output ports (phase 1).
     SelectingOutputs {
         drag_start_canvas: Pos2,
         drag_current_canvas: Pos2,
     },
-    /// Phase 1 complete — outputs chosen, waiting for the user to Shift+drag to select inputs.
     OutputsChosen {
-        /// The output PortRefs collected in phase 1, in top-to-bottom order.
         selected_output_ports: Vec<PortRef>,
     },
-    /// User is dragging a selection box to choose input ports (phase 2).
     SelectingInputs {
         selected_output_ports: Vec<PortRef>,
         drag_start_canvas: Pos2,

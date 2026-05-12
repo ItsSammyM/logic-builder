@@ -11,10 +11,11 @@ use super::constants::{
     COLOR_PORT_INPUT, COLOR_PORT_OUTPUT, COLOR_SIGNAL_HIGH, COLOR_WIRE_PENDING,
     GRID_CELL_SIZE, IO_RAIL_STEP, PORT_RADIUS,
 };
-use super::geometry::{
-    canvas_rect_from_two_points, draw_bezier_wire, input_port_canvas_pos,
-    make_nand_node, make_saved_gate_node, output_port_canvas_pos, snap_to_grid,
-};
+// Updated imports:
+use super::viewport::snap_to_grid;
+use super::wiring::{canvas_rect_from_two_points, draw_bezier_wire};
+use super::nodes::{input_port_canvas_pos, make_nand_node, make_saved_gate_node, output_port_canvas_pos};
+
 use super::graph::{BulkWireState, EditorNode, EditorNodeKind, Wire};
 
 impl App {
@@ -31,14 +32,12 @@ impl App {
                 let canvas_origin = canvas_response.rect.min;
                 let canvas_rect   = canvas_response.rect;
 
-                // ── Zoom (scroll wheel) ────────────────────────────────────
                 let scroll_delta = ui.input(|input| input.smooth_scroll_delta.y);
                 if scroll_delta != 0.0 && canvas_response.hovered() {
                     self.canvas_zoom =
                         (self.canvas_zoom * (1.0 + scroll_delta * 0.0012)).clamp(0.25, 4.0);
                 }
 
-                // ── Pan (middle-mouse drag) ────────────────────────────────
                 if canvas_response.dragged_by(PointerButton::Middle) {
                     self.canvas_pan += canvas_response.drag_delta() / self.canvas_zoom;
                 }
@@ -53,12 +52,10 @@ impl App {
                 let hovered_wire       = pointer_screen_pos
                     .and_then(|pos| self.hit_test_wire(pos, canvas_origin, canvas_rect));
 
-                // ── End gate drag ──────────────────────────────────────────
                 if canvas_response.drag_stopped() {
                     self.dragging_gate = None;
                 }
 
-                // ── Bulk-wire box-select (Shift+drag) ──────────────────────
                 self.update_bulk_wire(
                     &canvas_response,
                     pointer_screen_pos,
@@ -67,7 +64,6 @@ impl App {
                     canvas_rect,
                 );
 
-                // ── Gate dragging ──────────────────────────────────────────
                 if matches!(self.bulk_wire_state, BulkWireState::Idle) {
                     if let Some((dragged_gate_index, drag_offset)) = self.dragging_gate {
                         if canvas_response.dragged_by(PointerButton::Primary) {
@@ -94,7 +90,6 @@ impl App {
                     }
                 }
 
-                // ── Port click → single wire ───────────────────────────────
                 if canvas_response.clicked() && !shift_held {
                     if let Some((clicked_port, is_output_port)) = hovered_port.clone() {
                         match self.pending_wire_start.take() {
@@ -105,7 +100,6 @@ impl App {
                             }
                             Some(wire_start) => {
                                 if !is_output_port {
-                                    // Remove any existing wire driving this input port.
                                     self.graph.wires.retain(|wire| {
                                         !(wire.to.node == clicked_port.node
                                             && wire.to.port == clicked_port.port)
@@ -121,7 +115,6 @@ impl App {
                     }
                 }
 
-                // ── Right-click wire → delete ──────────────────────────────
                 if canvas_response.secondary_clicked() {
                     if let Some(wire) = hovered_wire.clone() {
                         if hovered_port.is_none() && hovered_gate_index.is_none() {
@@ -130,7 +123,6 @@ impl App {
                     }
                 }
 
-                // ── Delete/Backspace → remove hovered gate ─────────────────
                 if ui.input(|input| {
                     input.key_pressed(Key::Delete) || input.key_pressed(Key::Backspace)
                 }) {
@@ -139,12 +131,10 @@ impl App {
                     }
                 }
 
-                // ── Right-click canvas → gate spawn menu ───────────────────
                 let spawn_canvas_pos = pointer_screen_pos
                     .map(|pos| snap_to_grid(self.screen_to_canvas(pos, canvas_origin)))
                     .unwrap_or(Pos2::ZERO);
 
-                // Only show the spawn menu when not hovering a wire or gate.
                 if hovered_wire.is_none() && hovered_gate_index.is_none() {
                     canvas_response.context_menu(|ui| {
                         ui.label(RichText::new("Add Gate").strong().size(13.0));
@@ -190,12 +180,10 @@ impl App {
                     });
                 }
 
-                // ── Draw ──────────────────────────────────────────────────
                 self.draw_grid(&painter, canvas_rect);
                 self.draw_io_rails(&painter, canvas_rect);
                 self.draw_wires(&painter, canvas_origin, canvas_rect, &hovered_wire);
 
-                // In-progress wire preview following the cursor.
                 if let Some(wire_start_port) = &self.pending_wire_start.clone() {
                     let start_screen =
                         self.port_to_screen_pos(wire_start_port, true, canvas_origin, canvas_rect);
@@ -204,7 +192,6 @@ impl App {
                     }
                 }
 
-                // Gate nodes.
                 for gate_index in 0..self.graph.nodes.len() {
                     let is_hovered = hovered_gate_index == Some(gate_index)
                         && self.dragging_gate.map(|(dragged, _)| dragged) != Some(gate_index);
@@ -220,7 +207,6 @@ impl App {
                     );
                 }
 
-                // Highlight ring on the port under the mouse.
                 if let Some((hovered_port_ref, is_output_port)) = &hovered_port {
                     if let Some(pos) = self.port_to_screen_pos(
                         hovered_port_ref,
@@ -238,7 +224,6 @@ impl App {
                     }
                 }
 
-                // Bulk-wire overlay (selection boxes and highlighted ports).
                 self.draw_bulk_wire_overlay(&painter, canvas_origin, canvas_rect);
             });
     }
@@ -247,7 +232,6 @@ impl App {
     //  Bulk-wire state machine
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// Drive the bulk-wire state machine from the current canvas input state.
     pub fn update_bulk_wire(
         &mut self,
         canvas_response: &Response,
@@ -260,8 +244,6 @@ impl App {
             .map(|pos| self.screen_to_canvas(pos, canvas_origin));
 
         match std::mem::take(&mut self.bulk_wire_state) {
-
-            // ── Idle: start phase 1 on Shift+drag ─────────────────────────
             BulkWireState::Idle => {
                 if shift_held && canvas_response.drag_started_by(PointerButton::Primary) {
                     if let Some(start) = pointer_canvas_pos {
@@ -277,7 +259,6 @@ impl App {
                 }
             }
 
-            // ── Phase 1: user is dragging to select output ports ──────────
             BulkWireState::SelectingOutputs { drag_start_canvas, .. } => {
                 if canvas_response.dragged_by(PointerButton::Primary) {
                     let current = pointer_canvas_pos.unwrap_or(drag_start_canvas);
@@ -291,7 +272,6 @@ impl App {
                     let mut selected_output_ports =
                         self.collect_ports_in_canvas_rect(selection_rect, true, canvas_rect);
 
-                    // Sort top-to-bottom so pairing with inputs is intuitive.
                     selected_output_ports.sort_by(|port_a, port_b| {
                         let a_y = self
                             .port_to_screen_pos(port_a, true, canvas_origin, canvas_rect)
@@ -314,7 +294,6 @@ impl App {
                 }
             }
 
-            // ── Waiting: outputs chosen, waiting for phase 2 Shift+drag ───
             BulkWireState::OutputsChosen { selected_output_ports } => {
                 if shift_held && canvas_response.drag_started_by(PointerButton::Primary) {
                     if let Some(start) = pointer_canvas_pos {
@@ -328,14 +307,12 @@ impl App {
                             BulkWireState::OutputsChosen { selected_output_ports };
                     }
                 } else if !shift_held && canvas_response.clicked() {
-                    // Non-Shift click cancels the operation.
                     self.bulk_wire_state = BulkWireState::Idle;
                 } else {
                     self.bulk_wire_state = BulkWireState::OutputsChosen { selected_output_ports };
                 }
             }
 
-            // ── Phase 2: user is dragging to select input ports ───────────
             BulkWireState::SelectingInputs {
                 selected_output_ports,
                 drag_start_canvas,
@@ -366,12 +343,10 @@ impl App {
                         a_y.partial_cmp(&b_y).unwrap_or(std::cmp::Ordering::Equal)
                     });
 
-                    // Pair outputs to inputs in top-to-bottom order.
                     let pair_count = selected_output_ports.len().min(selected_input_ports.len());
                     for pair_index in 0..pair_count {
                         let output_port = selected_output_ports[pair_index].clone();
                         let input_port  = selected_input_ports[pair_index].clone();
-                        // Remove any existing wire driving this input port.
                         self.graph.wires.retain(|wire| {
                             !(wire.to.node == input_port.node && wire.to.port == input_port.port)
                         });
@@ -390,8 +365,6 @@ impl App {
     //  Port collection for box-select
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// Return all ports of the requested kind (output or input) whose canvas-space
-    /// position falls inside `canvas_rect_selection`.
     pub fn collect_ports_in_canvas_rect(
         &self,
         canvas_rect_selection: Rect,
@@ -405,7 +378,6 @@ impl App {
         let center_y     = full_canvas_rect.center().y;
 
         if want_output_ports {
-            // Left rail input pseudo-nodes act as output sources.
             let start_y = center_y - (input_count as f32 - 1.0) * IO_RAIL_STEP / 2.0;
             for input_index in 0..input_count {
                 let screen_pos = pos2(
@@ -421,7 +393,6 @@ impl App {
                 }
             }
         } else {
-            // Right rail output pseudo-nodes act as input sinks.
             let start_y = center_y - (output_count as f32 - 1.0) * IO_RAIL_STEP / 2.0;
             for output_index in 0..output_count {
                 let screen_pos = pos2(
@@ -438,7 +409,6 @@ impl App {
             }
         }
 
-        // Internal gate nodes.
         for gate_index in 0..self.graph.nodes.len() {
             let node = &self.graph.nodes[gate_index];
             if want_output_ports {
@@ -471,7 +441,6 @@ impl App {
     //  Bulk-wire overlay drawing
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// Draw selection boxes and port-highlight rings for the current bulk-wire phase.
     pub fn draw_bulk_wire_overlay(&self, painter: &Painter, canvas_origin: Pos2, canvas_rect: Rect) {
         match &self.bulk_wire_state {
             BulkWireState::SelectingOutputs { drag_start_canvas, drag_current_canvas } => {

@@ -4,19 +4,12 @@ use crate::sim_builder::PortRef;
 
 use super::app::App;
 use super::constants::{IO_RAIL_STEP, NODE_WIDTH, PORT_RADIUS};
-use super::geometry::{
+use super::nodes::{ // Updated import
     compute_node_height, input_port_canvas_pos, output_port_canvas_pos,
 };
 use super::graph::Wire;
 
 impl App {
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Port hit testing
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /// Find the port dot closest to `screen_pos`, if within the interaction radius.
-    ///
-    /// Returns `(PortRef, is_output_port)` or `None`.
     pub fn hit_test_port(
         &self,
         screen_pos: Pos2,
@@ -28,7 +21,6 @@ impl App {
         let hit_radius   = (PORT_RADIUS + 6.0) * self.canvas_zoom;
         let center_y     = canvas_rect.center().y;
 
-        // Left rail — input pseudo-nodes (treated as outputs for wiring purposes).
         let inputs_start_y = center_y - (input_count as f32 - 1.0) * IO_RAIL_STEP / 2.0;
         for input_index in 0..input_count {
             let dot_pos = pos2(
@@ -43,7 +35,6 @@ impl App {
             }
         }
 
-        // Right rail — output pseudo-nodes (treated as inputs for wiring purposes).
         let outputs_start_y = center_y - (output_count as f32 - 1.0) * IO_RAIL_STEP / 2.0;
         for output_index in 0..output_count {
             let dot_pos = pos2(
@@ -58,7 +49,6 @@ impl App {
             }
         }
 
-        // Internal gate nodes.
         for gate_index in 0..self.graph.nodes.len() {
             let node = &self.graph.nodes[gate_index];
 
@@ -92,12 +82,6 @@ impl App {
         None
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Gate hit testing
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /// Return the index of the topmost gate whose bounding box contains `screen_pos`,
-    /// or `None` if none.  Iterates in reverse so the last-drawn (visually topmost) gate wins.
     pub fn hit_test_gate(&self, screen_pos: Pos2, canvas_origin: Pos2) -> Option<usize> {
         for gate_index in (0..self.graph.nodes.len()).rev() {
             let node        = &self.graph.nodes[gate_index];
@@ -114,12 +98,6 @@ impl App {
         None
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Wire hit testing
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /// Return the wire whose bezier curve passes within the hit radius of `screen_pos`,
-    /// or `None`.  Samples several points along the curve to approximate proximity.
     pub fn hit_test_wire(
         &self,
         screen_pos: Pos2,

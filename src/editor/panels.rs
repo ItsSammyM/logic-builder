@@ -106,9 +106,6 @@ impl App {
 
                 let dragging_index: Option<usize> = self.input_drag_reorder.map(|(d, _)| d);
 
-                // Collect the screen-y centre of each row so we can determine the
-                // closest drop target from the pointer position.  The rows are
-                // rendered in order, so we fill this as we go.
                 let mut row_centre_ys: Vec<f32> = Vec::with_capacity(self.graph.inputs.len());
 
                 for input_index in 0..self.graph.inputs.len() {
@@ -118,7 +115,6 @@ impl App {
                         .unwrap_or(false)
                         && dragging_index != Some(input_index);
 
-                    // Draw a coloured line above this row when it is the current drop target.
                     if is_drop_target {
                         let available = ui.available_rect_before_wrap();
                         ui.painter().hline(
@@ -129,7 +125,6 @@ impl App {
                     }
 
                     let row_response = ui.horizontal(|ui| {
-                        // ── Drag handle ────────────────────────────────────
                         let handle_response = ui.add(
                             Button::new(RichText::new("⠿").color(COLOR_DIM).size(14.0))
                                 .frame(false)
@@ -157,7 +152,6 @@ impl App {
                         handle_response
                     });
 
-                    // Record this row's vertical centre for drop-target detection.
                     let row_rect = row_response.response.rect;
                     row_centre_ys.push(row_rect.center().y);
 
@@ -185,7 +179,6 @@ impl App {
                     }
                 }
 
-                // Apply a pending reorder outside the loop so indices are stable.
                 if let Some((old_index, new_index)) = reorder_from_to {
                     if old_index < self.input_states.len() && new_index < self.input_states.len() {
                         if old_index < new_index {
@@ -217,7 +210,7 @@ impl App {
                         } else {
                             std::mem::take(&mut self.new_input_name)
                         };
-                        self.graph.inputs.push(name);
+                        self.graph.add_input(name); // Changed from .push()
                         self.input_states.push(false);
                     }
                 });
@@ -359,7 +352,7 @@ impl App {
                         } else {
                             std::mem::take(&mut self.new_output_name)
                         };
-                        self.graph.outputs.push(name);
+                        self.graph.add_output(name); // Changed from .push()
                         self.output_states.push(false);
                     }
                 });
@@ -458,16 +451,12 @@ impl App {
                             let new_name = self.library_rename_text.trim().to_string();
                             if !new_name.is_empty() {
                                 self.library[rename_index].name        = new_name.clone();
-                                self.library[rename_index].graph.inputs = self.library[rename_index].graph.inputs.clone(); // no-op, name only
-                                // Clone the updated gate *before* we take the library out.
                                 let updated_gate = self.library[rename_index].clone();
-                                // Propagate the new name to all instances in the active canvas.
                                 Self::update_saved_gate_instances_in_graph(
                                     &mut self.graph,
                                     rename_index,
                                     &updated_gate,
                                 );
-                                // Propagate to all library graphs.
                                 let mut library = std::mem::take(&mut self.library);
                                 for library_gate in &mut library {
                                     Self::update_saved_gate_instances_in_graph(
@@ -497,12 +486,6 @@ impl App {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Drop-target resolution
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// Given the screen-y of the pointer and a list of row centre-y values (in order),
-/// return the index of the row whose centre is closest to the pointer.
 fn closest_index_to_y(pointer_y: f32, row_centre_ys: &[f32]) -> usize {
     if row_centre_ys.is_empty() {
         return 0;
