@@ -38,11 +38,15 @@ impl NodeId{
             },
             NodeKind::Graph { inputs, outputs, simulation } => {
                 for (inner_wire, outer_wire) in simulation.input_wires.iter().zip(inputs.iter()){
+                    let value = outer_wire.current_value(wire_states);
                     inner_wire.set_current(
                         &mut simulation.wire_states,
-                        outer_wire.current_value(wire_states)
+                        value
                     );
-                    
+                    inner_wire.set_next(
+                        &mut simulation.wire_states,
+                        value
+                    );
                 }
                 
                 simulation.run_one_tick();

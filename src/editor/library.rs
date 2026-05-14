@@ -5,6 +5,18 @@ use bincode::Options;
 use super::app::App;
 use super::graph::{EditorGraph, EditorNodeKind, LibraryGate};
 
+
+impl LibraryGate{
+    fn from_editor(app: &App)->Self{
+        LibraryGate {
+            name:         app.title.clone(),
+            input_count:  app.graph.inputs.len(),
+            output_count: app.graph.outputs.len(),
+            graph:        app.graph.clone(),
+        }
+    }
+}
+
 impl App {
     // ─────────────────────────────────────────────────────────────────────────
     //  Library persistence
@@ -12,12 +24,7 @@ impl App {
 
     /// Save the current canvas as a `LibraryGate`.
     pub fn save_current_graph_to_library(&mut self) {
-        let new_gate = LibraryGate {
-            name:         self.title.clone(),
-            input_count:  self.graph.inputs.len(),
-            output_count: self.graph.outputs.len(),
-            graph:        self.graph.clone(),
-        };
+        let new_gate = LibraryGate::from_editor(self);
 
         if let Some(library_index) = self.library.iter().position(|saved| saved.name == new_gate.name) {
             self.library[library_index] = new_gate.clone();
@@ -49,10 +56,6 @@ impl App {
         library_index: usize,
         updated_library_gate: &LibraryGate,
     ) {
-        let new_input_count  = updated_library_gate.input_count;
-        let new_output_count = updated_library_gate.output_count;
-        let new_input_labels: Vec<String>  = updated_library_gate.graph.inputs.clone();
-        let new_output_labels: Vec<String> = updated_library_gate.graph.outputs.clone();
         let gate_base = graph.inputs.len() + graph.outputs.len();
 
         let matching_node_ids: Vec<usize> = graph
@@ -70,10 +73,10 @@ impl App {
 
         graph.wires.retain(|wire| {
             for &node_id in &matching_node_ids {
-                if wire.to.node == node_id && wire.to.port >= new_input_count {
+                if wire.to.node == node_id && wire.to.port >= updated_library_gate.input_count {
                     return false;
                 }
-                if wire.from.node == node_id && wire.from.port >= new_output_count {
+                if wire.from.node == node_id && wire.from.port >= updated_library_gate.output_count {
                     return false;
                 }
             }
@@ -85,10 +88,10 @@ impl App {
                 continue;
             }
             node.label         = updated_library_gate.name.clone();
-            node.input_count   = new_input_count;
-            node.output_count  = new_output_count;
-            node.input_labels  = new_input_labels.clone();
-            node.output_labels = new_output_labels.clone();
+            node.input_count   = updated_library_gate.input_count;
+            node.output_count  = updated_library_gate.output_count;
+            node.input_labels  = updated_library_gate.graph.inputs.clone();
+            node.output_labels = updated_library_gate.graph.outputs.clone();
         }
     }
 

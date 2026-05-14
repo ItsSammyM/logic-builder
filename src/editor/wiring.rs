@@ -1,5 +1,7 @@
 use egui::{Color32, Painter, Pos2, Rect, Stroke, pos2};
 
+use crate::editor::constants::COLOR_WIRE_PENDING;
+
 use super::app::App;
 use super::constants::{COLOR_WIRE, COLOR_WIRE_HIGH, COLOR_WIRE_LOW};
 use super::graph::Wire;
@@ -40,6 +42,23 @@ impl App {
                 let line_width = if is_hovered { 4.5 } else { 2.5 };
                 let color      = if is_hovered { Color32::from_rgb(255, 80, 80) } else { wire_color };
                 draw_bezier_wire(painter, from_pos, to_pos, color, line_width);
+            }
+        }
+    }
+
+
+    pub fn draw_pending_wires(
+        &self,
+        painter: &Painter,
+        canvas_origin: Pos2,
+        canvas_rect: Rect,
+        pointer_screen_pos: Option<Pos2>,
+    ) {
+        if let Some(wire_start_port) = &self.pending_wire_start.clone() {
+            let start_screen =
+                self.port_to_screen_pos(wire_start_port, true, canvas_origin, canvas_rect);
+            if let (Some(start_pos), Some(mouse_pos)) = (start_screen, pointer_screen_pos) {
+                draw_bezier_wire(&painter, start_pos, mouse_pos, COLOR_WIRE_PENDING, 2.0);
             }
         }
     }

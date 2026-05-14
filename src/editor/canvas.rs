@@ -121,6 +121,14 @@ impl App {
                             self.graph.remove_wire(&wire);
                         }
                     }
+                    // Capture spawn position for the context menu
+                    if hovered_wire.is_none() && hovered_gate_index.is_none() {
+                        if let Some(pos) = pointer_screen_pos {
+                            self.context_menu_spawn_pos = Some(
+                                snap_to_grid(self.screen_to_canvas(pos, canvas_origin))
+                            );
+                        }
+                    }
                 }
 
                 if ui.input(|input| {
@@ -131,12 +139,10 @@ impl App {
                     }
                 }
 
-                let spawn_canvas_pos = pointer_screen_pos
-                    .map(|pos| snap_to_grid(self.screen_to_canvas(pos, canvas_origin)))
-                    .unwrap_or(Pos2::ZERO);
-
                 if hovered_wire.is_none() && hovered_gate_index.is_none() {
                     canvas_response.context_menu(|ui| {
+                        let spawn_canvas_pos = self.context_menu_spawn_pos.unwrap_or(Pos2::ZERO);
+
                         ui.label(RichText::new("Add Gate").strong().size(13.0));
                         ui.separator();
 
@@ -181,16 +187,9 @@ impl App {
                 }
 
                 self.draw_grid(&painter, canvas_rect);
-                self.draw_io_rails(&painter, canvas_rect);
                 self.draw_wires(&painter, canvas_origin, canvas_rect, &hovered_wire);
-
-                if let Some(wire_start_port) = &self.pending_wire_start.clone() {
-                    let start_screen =
-                        self.port_to_screen_pos(wire_start_port, true, canvas_origin, canvas_rect);
-                    if let (Some(start_pos), Some(mouse_pos)) = (start_screen, pointer_screen_pos) {
-                        draw_bezier_wire(&painter, start_pos, mouse_pos, COLOR_WIRE_PENDING, 2.0);
-                    }
-                }
+                self.draw_pending_wires(&painter, canvas_origin, canvas_rect, pointer_screen_pos);
+                self.draw_io_rails(&painter, canvas_rect);
 
                 for gate_index in 0..self.graph.nodes.len() {
                     let is_hovered = hovered_gate_index == Some(gate_index)

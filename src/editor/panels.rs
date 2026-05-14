@@ -60,7 +60,9 @@ impl App {
 
                     if ui.button("⏭  Step").on_hover_text("Rebuild & advance one tick").clicked() {
                         self.simulation_running = false;
-                        self.build_simulation_from_graph();
+                        if self.simulation.is_none() {
+                            self.build_simulation_from_graph();
+                        }
                         self.step_simulation();
                     }
 
@@ -135,9 +137,6 @@ impl App {
                         if ui.small_button(if is_on { "🟢" } else { "⚫" }).clicked() {
                             if let Some(state) = self.input_states.get_mut(input_index) {
                                 *state = !*state;
-                            }
-                            if self.simulation.is_some() {
-                                self.step_simulation();
                             }
                         }
                         ui.add(

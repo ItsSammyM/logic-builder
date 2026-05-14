@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
+use super::constants::{COLOR_PANEL_BG, COLOR_TEXT};
+use egui::Pos2;
 use egui::Vec2;
+use egui::{Visuals, ViewportBuilder};
 
 use crate::sim_builder::PortRef;
 use crate::simulation::simulation::Simulation;
@@ -36,6 +39,8 @@ pub struct App {
 
     pub input_drag_reorder: Option<(usize, usize)>,
     pub output_drag_reorder: Option<(usize, usize)>,
+
+    pub context_menu_spawn_pos: Option<Pos2>,
 }
 
 impl Default for App {
@@ -62,11 +67,25 @@ impl Default for App {
             library_rename_text: String::new(),
             input_drag_reorder: None,
             output_drag_reorder: None,
+            context_menu_spawn_pos: None,
         }
     }
 }
 
 impl App {
+    pub fn run()->Result<(), eframe::Error>{
+        eframe::run_native(
+            "Logic Gate Editor",
+            eframe::NativeOptions {
+                viewport: ViewportBuilder::default()
+                    .with_title("Logic Gate Editor")
+                    .with_inner_size([1440.0, 900.0])
+                    .with_min_inner_size([800.0, 600.0]),
+                ..Default::default()
+            },
+            Box::new(|_cc| Box::new(App::default())),
+        )
+    }
     /// Reset the canvas to a blank single-input / single-output graph.
     pub fn clear_canvas(&mut self) {
         self.graph              = EditorGraph::default();
@@ -80,5 +99,31 @@ impl App {
         self.live_wire_signals  = HashMap::new();
         self.port_to_wire_index = HashMap::new();
         self.bulk_wire_state    = BulkWireState::Idle;
+    }
+}
+
+impl eframe::App for App {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let mut visuals = Visuals::dark();
+        visuals.panel_fill = COLOR_PANEL_BG;
+        visuals.override_text_color = Some(COLOR_TEXT);
+        ctx.set_visuals(visuals);
+
+        let mut style = (*ctx.style()).clone();
+        style.text_styles.insert(
+            egui::TextStyle::Small,
+            egui::FontId::proportional(13.0),
+        );
+        ctx.set_style(style);
+
+        if self.simulation_running {
+            self.step_simulation();
+            ctx.request_repaint();
+        }
+
+        self.show_top_panel(ctx);
+        self.show_left_panel(ctx);
+        self.show_right_panel(ctx);
+        self.show_canvas(ctx);
     }
 }

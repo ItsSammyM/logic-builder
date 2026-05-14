@@ -41,7 +41,7 @@ impl BitArray {
 
     /// Returns the new length
     pub fn push(&mut self, val: bool)->&u32{
-        if self.len == self.len * 32 {
+        if self.len % 32 == 0 {
             self.words.push(0);
         }
 
