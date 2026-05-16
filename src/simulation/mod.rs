@@ -1,8 +1,10 @@
+use serde::{Deserialize, Serialize};
+
 use self::prelude::*;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeId(pub u32);
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WireId(pub u32);
 impl WireId{
     fn next_value(&self, state: &WireState)->bool{

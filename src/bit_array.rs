@@ -1,4 +1,6 @@
-#[derive(Debug)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct BitArray {
     // Each u32 holds 32 bits. Word size is 32.
     words: Vec<u32>,

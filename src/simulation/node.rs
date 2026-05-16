@@ -1,8 +1,9 @@
 use super::prelude::*;
-
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Node{
     pub kind: NodeKind  
 }
+#[derive(Debug, Serialize, Deserialize)]
 pub enum NodeKind{
     Nand{
         input_a: WireId,

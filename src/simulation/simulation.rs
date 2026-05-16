@@ -1,5 +1,8 @@
+use serde::{Deserialize, Serialize};
+
 use super::prelude::*;
 
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Simulation{
     pub wire_states: WireState,
     pub nodes: Nodes,
@@ -9,6 +12,7 @@ pub struct Simulation{
     // Which inner wires map to this node's external output ports
     pub output_wires: Vec<WireId>,
 }
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Nodes{
     pub nodes: Vec<Node>
 }
