@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use super::constants::{COLOR_PANEL_BG, COLOR_TEXT, FONT_SIZE_HEADING};
+use super::library::Library;
 use egui::Pos2;
 use egui::Vec2;
 use egui::{Visuals, ViewportBuilder};
@@ -8,12 +9,12 @@ use egui::{Visuals, ViewportBuilder};
 use crate::sim_builder::PortRef;
 use crate::simulation::simulation::Simulation;
 
-use super::graph::{BulkWireState, EditorGraph, LibraryGate};
+use super::graph::{BulkWireState, EditorGraph};
 
 pub struct App {
     pub title: String,
     pub graph: EditorGraph,
-    pub library: Vec<LibraryGate>,
+    pub library: Library,
 
     pub simulation: Option<Simulation>,
     pub live_wire_signals: HashMap<u32, bool>,
@@ -34,7 +35,7 @@ pub struct App {
     pub new_input_name: String,
     pub new_output_name: String,
 
-    pub library_rename_index: Option<usize>,
+    pub library_rename_index: Option<String>,
     pub library_rename_text: String,
 
     pub input_drag_reorder: Option<(usize, usize)>,
@@ -48,7 +49,7 @@ impl Default for App {
         Self {
             title: "My Gate".into(),
             graph: EditorGraph::default(),
-            library: vec![],
+            library: Library::default(),
             simulation: None,
             live_wire_signals: HashMap::new(),
             port_to_wire_index: HashMap::new(),

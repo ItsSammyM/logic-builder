@@ -31,11 +31,11 @@ pub mod pos2_serde {
 //  EditorNodeKind
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum EditorNodeKind {
     Nand,
-    /// Index into App::library, identifying which saved gate this instance represents.
-    SavedGate(usize),
+    /// Name of the gate in App::library, identifying which saved gate this instance represents.
+    SavedGate(String),
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -146,18 +146,9 @@ impl EditorGraph {
     }
 
     // ── Structural mutations that keep wires consistent ───────────────────────
-    //
-    // The root cause of the deletion bugs is that PortRef::node is a *flat* id
-    // (not a stable handle), so removing any node shifts the ids of everything
-    // that follows it.  Every removal must rewrite all wire node-ids accordingly.
 
-    /// Add a new input port at the end of the list and fix up all wire node-ids.
     pub fn add_input(&mut self, name: String) {
-        // The new input will take this node-id, which currently belongs to the first output.
         let new_node_id = self.inputs.len();
-        // Any wire referencing a node-id >= new_node_id must be incremented by 1,
-        // because adding one input shifts every output and every gate up by one
-        // in the flat id space.
         for wire in &mut self.wires {
             if wire.from.node >= new_node_id { wire.from.node += 1; }
             if wire.to.node   >= new_node_id { wire.to.node   += 1; }
@@ -165,12 +156,8 @@ impl EditorGraph {
         self.inputs.push(name);
     }
 
-    /// Add a new output port at the end of the list and fix up all wire node-ids.
     pub fn add_output(&mut self, name: String) {
-        // The new output will take this node-id, which currently belongs to the first gate.
         let new_node_id = self.inputs.len() + self.outputs.len();
-        // Any wire referencing a node-id >= new_node_id must be incremented by 1,
-        // because adding one output shifts every gate up by one in the flat id space.
         for wire in &mut self.wires {
             if wire.from.node >= new_node_id { wire.from.node += 1; }
             if wire.to.node   >= new_node_id { wire.to.node   += 1; }
@@ -178,86 +165,55 @@ impl EditorGraph {
         self.outputs.push(name);
     }
 
-    /// Remove an input at position `input_index` and fix up all wire node-ids.
     pub fn remove_input(&mut self, input_index: usize) {
         let removed_node_id = self.input_node_id(input_index);
-
-        // Drop wires that originate from the removed input.
         self.wires.retain(|wire| wire.from.node != removed_node_id);
-
-        // Any wire referencing a node-id > removed_node_id must be decremented by 1,
-        // because removing one input shifts every subsequent input, every output, and
-        // every gate down by one in the flat id space.
         for wire in &mut self.wires {
             if wire.from.node > removed_node_id { wire.from.node -= 1; }
             if wire.to.node   > removed_node_id { wire.to.node   -= 1; }
         }
-
         self.inputs.remove(input_index);
     }
 
-    /// Remove an output at position `output_index` and fix up all wire node-ids.
     pub fn remove_output(&mut self, output_index: usize) {
         let removed_node_id = self.output_node_id(output_index);
-
-        // Drop wires that feed the removed output.
         self.wires.retain(|wire| wire.to.node != removed_node_id);
-
         for wire in &mut self.wires {
             if wire.from.node > removed_node_id { wire.from.node -= 1; }
             if wire.to.node   > removed_node_id { wire.to.node   -= 1; }
         }
-
         self.outputs.remove(output_index);
     }
 
-    /// Remove a gate at position `gate_index` and fix up all wire node-ids.
     pub fn remove_gate(&mut self, gate_index: usize) {
         let removed_node_id = self.gate_node_id(gate_index);
-
-        // Drop wires connected to the removed gate.
         self.wires.retain(|wire| {
             wire.from.node != removed_node_id && wire.to.node != removed_node_id
         });
-
         for wire in &mut self.wires {
             if wire.from.node > removed_node_id { wire.from.node -= 1; }
             if wire.to.node   > removed_node_id { wire.to.node   -= 1; }
         }
-
         self.nodes.remove(gate_index);
     }
 
-    /// Remove a specific wire (by value equality).
     pub fn remove_wire(&mut self, wire_to_remove: &Wire) {
         self.wires.retain(|wire| wire != wire_to_remove);
     }
 
-    /// Move the input at `old_index` to `new_index`, sliding the items in between,
-    /// and rewrite all wire node-ids so wires stay connected to the same logical port.
     pub fn reorder_input(&mut self, old_index: usize, new_index: usize) {
         if old_index == new_index
             || old_index >= self.inputs.len()
             || new_index >= self.inputs.len()
-        {
-            return;
-        }
+        { return; }
 
         let permuted_input_node_id = |node_id: usize| -> usize {
-            if node_id >= self.inputs.len() {
-                return node_id;
-            }
-            if node_id == old_index {
-                return new_index;
-            }
+            if node_id >= self.inputs.len() { return node_id; }
+            if node_id == old_index { return new_index; }
             if old_index < new_index {
-                if node_id > old_index && node_id <= new_index {
-                    return node_id - 1;
-                }
+                if node_id > old_index && node_id <= new_index { return node_id - 1; }
             } else {
-                if node_id >= new_index && node_id < old_index {
-                    return node_id + 1;
-                }
+                if node_id >= new_index && node_id < old_index { return node_id + 1; }
             }
             node_id
         };
@@ -274,35 +230,23 @@ impl EditorGraph {
         }
     }
 
-    /// Move the output at `old_index` to `new_index`, sliding the items in between,
-    /// and rewrite all wire node-ids so wires stay connected to the same logical port.
     pub fn reorder_output(&mut self, old_index: usize, new_index: usize) {
         if old_index == new_index
             || old_index >= self.outputs.len()
             || new_index >= self.outputs.len()
-        {
-            return;
-        }
+        { return; }
 
         let input_count = self.inputs.len();
         let output_count = self.outputs.len();
 
         let permuted_output_node_id = |node_id: usize| -> usize {
-            if node_id < input_count || node_id >= input_count + output_count {
-                return node_id;
-            }
+            if node_id < input_count || node_id >= input_count + output_count { return node_id; }
             let output_index = node_id - input_count;
-            if output_index == old_index {
-                return input_count + new_index;
-            }
+            if output_index == old_index { return input_count + new_index; }
             if old_index < new_index {
-                if output_index > old_index && output_index <= new_index {
-                    return node_id - 1;
-                }
+                if output_index > old_index && output_index <= new_index { return node_id - 1; }
             } else {
-                if output_index >= new_index && output_index < old_index {
-                    return node_id + 1;
-                }
+                if output_index >= new_index && output_index < old_index { return node_id + 1; }
             }
             node_id
         };
@@ -319,15 +263,14 @@ impl EditorGraph {
         }
     }
 
-    /// Remove all gate nodes whose kind is `SavedGate(library_index)`,
-    /// along with every wire connected to them, and fix up the remaining wire node-ids.
-    pub fn remove_all_gates_of_library_index(&mut self, library_index: usize) {
+    /// Remove all gate nodes whose kind is `SavedGate(library_name)`.
+    pub fn remove_all_gates_of_library_name(&mut self, library_name: &str) {
         let gate_indices_to_remove: Vec<usize> = self
             .nodes
             .iter()
             .enumerate()
             .filter_map(|(gate_index, node)| {
-                if matches!(node.kind, EditorNodeKind::SavedGate(idx) if idx == library_index) {
+                if matches!(&node.kind, EditorNodeKind::SavedGate(name) if name == library_name) {
                     Some(gate_index)
                 } else {
                     None
@@ -341,18 +284,55 @@ impl EditorGraph {
         }
     }
 
-    /// After a library entry has been removed at `deleted_library_index`, decrement
-    /// every `SavedGate` reference whose index is above `deleted_library_index`.
-    pub fn remap_saved_gate_indices_after_library_deletion(
-        &mut self,
-        deleted_library_index: usize,
-    ) {
+    /// Rename all `SavedGate` references from `old_name` to `new_name`.
+    pub fn rename_saved_gate_references(&mut self, old_name: &str, new_name: &str) {
         for node in &mut self.nodes {
-            if let EditorNodeKind::SavedGate(reference_index) = &mut node.kind {
-                if *reference_index > deleted_library_index {
-                    *reference_index -= 1;
+            if let EditorNodeKind::SavedGate(ref mut name) = node.kind {
+                if name == old_name {
+                    *name = new_name.to_string();
                 }
             }
+        }
+    }
+
+    /// Refresh every `SavedGate(gate_name)` node to match the updated definition.
+    pub fn update_saved_gate_instances(&mut self, gate_name: &str, updated_library_gate: &LibraryGate) {
+        let gate_base = self.inputs.len() + self.outputs.len();
+
+        let matching_node_ids: Vec<usize> = self
+            .nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(gate_index, node)| {
+                if matches!(&node.kind, EditorNodeKind::SavedGate(name) if name == gate_name) {
+                    Some(gate_base + gate_index)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        self.wires.retain(|wire| {
+            for &node_id in &matching_node_ids {
+                if wire.to.node == node_id && wire.to.port >= updated_library_gate.input_count {
+                    return false;
+                }
+                if wire.from.node == node_id && wire.from.port >= updated_library_gate.output_count {
+                    return false;
+                }
+            }
+            true
+        });
+
+        for node in self.nodes.iter_mut() {
+            if !matches!(&node.kind, EditorNodeKind::SavedGate(name) if name == gate_name) {
+                continue;
+            }
+            node.label         = updated_library_gate.name.clone();
+            node.input_count   = updated_library_gate.input_count;
+            node.output_count  = updated_library_gate.output_count;
+            node.input_labels  = updated_library_gate.graph.inputs.clone();
+            node.output_labels = updated_library_gate.graph.outputs.clone();
         }
     }
 }

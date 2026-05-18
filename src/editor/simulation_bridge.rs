@@ -13,15 +13,12 @@ impl App {
     // ─────────────────────────────────────────────────────────────────────────
 
     /// (Re-)compile the current editor graph into a runnable [`Simulation`].
-    ///
-    /// Sets `self.simulation`, `self.port_to_wire_index`, and `self.simulation_error`
-    /// according to whether compilation succeeded.
     pub fn build_simulation_from_graph(&mut self) {
         let current_desc = editor_graph_to_desc(&self.graph);
-        let library_descs: Vec<GraphDesc> = self
+        let library_descs: HashMap<String, GraphDesc> = self
             .library
             .iter()
-            .map(|saved_gate| editor_graph_to_desc(&saved_gate.graph))
+            .map(|(name, saved_gate)| (name.clone(), editor_graph_to_desc(&saved_gate.graph)))
             .collect();
 
         let port_to_wire_index = build_port_to_wire_index_map(&current_desc);
@@ -60,7 +57,6 @@ impl App {
         simulation.run_one_tick();
         self.output_states = simulation.outputs().collect();
 
-        // Snapshot live wire values so the renderer can color ports and wires.
         self.live_wire_signals.clear();
         for &wire_index in self.port_to_wire_index.values() {
             let signal = read_wire_by_index(simulation, wire_index);
@@ -73,7 +69,6 @@ impl App {
 //  EditorGraph → GraphDesc translation
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Convert an [`EditorGraph`] into the flat [`GraphDesc`] that `build_simulation` expects.
 pub fn editor_graph_to_desc(graph: &EditorGraph) -> GraphDesc {
     let input_count  = graph.inputs.len();
     let output_count = graph.outputs.len();
@@ -86,7 +81,7 @@ pub fn editor_graph_to_desc(graph: &EditorGraph) -> GraphDesc {
         gates: graph.nodes.iter().map(|node| {
             let kind = match &node.kind {
                 EditorNodeKind::Nand           => GateKind::Nand,
-                EditorNodeKind::SavedGate(idx) => GateKind::SavedGate(*idx),
+                EditorNodeKind::SavedGate(name) => GateKind::SavedGate(name.clone()),
             };
             (node.input_count, node.output_count, kind)
         }).collect(),
@@ -97,25 +92,18 @@ pub fn editor_graph_to_desc(graph: &EditorGraph) -> GraphDesc {
     }
 }
 
-/// Build a map from `(node_id, port_index, is_output)` → `wire_index`, mirroring
-/// the wire-assignment order used inside `build_simulation`.
-///
-/// This lets the drawing code look up live signal values without needing access to
-/// simulation internals (`WireId`).
 pub fn build_port_to_wire_index_map(
     desc: &GraphDesc,
 ) -> HashMap<(usize, usize, bool), u32> {
     let mut port_to_wire: HashMap<(usize, usize, bool), u32> = HashMap::new();
     let mut next_wire_id: u32 = 0;
 
-    // Input pseudo-nodes each drive one wire (their single output port).
     for input_index in 0..desc.n_inputs {
         let node_id = desc.input_base + input_index;
         port_to_wire.insert((node_id, 0, true), next_wire_id);
         next_wire_id += 1;
     }
 
-    // Each output port of every internal gate gets a unique wire id.
     for (gate_slot, (_, gate_output_count, _)) in desc.gates.iter().enumerate() {
         let node_id = desc.gate_base + gate_slot;
         for port_index in 0..*gate_output_count {

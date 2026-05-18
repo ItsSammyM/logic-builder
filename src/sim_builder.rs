@@ -7,6 +7,8 @@
 //! recursively calls itself on the saved gate's own `GraphDesc`, so the full
 //! gate hierarchy is compiled into nested [`NodeKind::Graph`] simulations.
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::simulation::{
@@ -42,8 +44,8 @@ pub struct WireDesc {
 #[derive(Clone, Debug)]
 pub enum GateKind {
     Nand,
-    /// Index into the `library_descs` slice passed to `build_simulation`.
-    SavedGate(usize),
+    /// Name of the gate in the library, identifying which saved gate this instance represents.
+    SavedGate(String),
 }
 
 /// A complete description of one level of the circuit as seen by the editor.
@@ -69,15 +71,15 @@ pub struct GraphDesc {
 
 /// Build a [`Simulation`] from a [`GraphDesc`].
 ///
-/// `library_descs` is the slice of `GraphDesc`s for every gate that has been
-/// saved to the library.  When a `SavedGate(index)` node is encountered the
-/// builder calls itself recursively on `library_descs[index]`, so the full
+/// `library_descs` is the HashMap of `GraphDesc`s for every gate that has been
+/// saved to the library.  When a `SavedGate(name)` node is encountered the
+/// builder calls itself recursively on `library_descs[name]`, so the full
 /// gate hierarchy is compiled without any stub pass-throughs.
 ///
 /// Returns `Err(message)` if the description is structurally invalid.
 pub fn build_simulation(
     desc: &GraphDesc,
-    library_descs: &[GraphDesc],
+    library_descs: &HashMap<String, GraphDesc>,
 ) -> Result<Simulation, String> {
     // ── Wire-id assignment ────────────────────────────────────────────────────
     //
@@ -172,7 +174,7 @@ pub fn build_simulation(
                 });
             }
 
-            GateKind::SavedGate(library_index) => {
+            GateKind::SavedGate(library_name) => {
                 // Resolve the outer wires — these live in the parent simulation's wire space.
                 let outer_input_wires: Vec<WireId> = (0..*gate_input_count)
                     .map(|port_index| WireId(find_driving_wire_id(node_id, port_index)))
@@ -184,11 +186,10 @@ pub fn build_simulation(
                     .collect();
 
                 // Recursively compile the saved gate's own graph into an inner simulation.
-                let inner_desc = library_descs.get(*library_index).ok_or_else(|| {
+                let inner_desc = library_descs.get(library_name).ok_or_else(|| {
                     format!(
-                        "Gate slot {gate_slot}: SavedGate references library index \
-                         {library_index}, but the library only has {} entries",
-                        library_descs.len()
+                        "Gate slot {gate_slot}: SavedGate references library name \
+                         '{library_name}', but the library does not contain it"
                     )
                 })?;
 
@@ -196,7 +197,7 @@ pub fn build_simulation(
                     .map_err(|inner_error| {
                         format!(
                             "Gate slot {gate_slot}: error compiling inner gate at \
-                             library index {library_index}: {inner_error}"
+                             library name '{library_name}': {inner_error}"
                         )
                     })?;
 

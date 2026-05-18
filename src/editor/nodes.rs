@@ -231,7 +231,7 @@ pub fn make_nand_node(pos: Pos2) -> EditorNode {
 /// Construct an `EditorNode` for a library gate instance at the given canvas position.
 pub fn make_saved_gate_node(
     pos: Pos2,
-    library_index: usize,
+    gate_name: String,
     gate_label: String,
     input_labels: Vec<String>,
     output_labels: Vec<String>,
@@ -243,7 +243,7 @@ pub fn make_saved_gate_node(
         pos,
         input_count,
         output_count,
-        kind: EditorNodeKind::SavedGate(library_index),
+        kind: EditorNodeKind::SavedGate(gate_name),
         input_labels,
         output_labels,
     }

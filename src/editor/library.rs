@@ -1,13 +1,120 @@
 use std::collections::HashMap;
 
 use bincode::Options;
+use serde::{Deserialize, Serialize};
 
 use super::app::App;
-use super::graph::{EditorGraph, EditorNodeKind, LibraryGate};
+use super::graph::{EditorGraph, LibraryGate};
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  Library Struct — Encapsulates all library data and internal graph updating
+// ─────────────────────────────────────────────────────────────────────────────
 
-impl LibraryGate{
-    fn from_editor(app: &App)->Self{
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct Library {
+    gates: HashMap<String, LibraryGate>,
+}
+
+impl Library {
+    pub fn is_empty(&self) -> bool {
+        self.gates.is_empty()
+    }
+
+    pub fn contains(&self, name: &str) -> bool {
+        self.gates.contains_key(name)
+    }
+
+    pub fn get(&self, name: &str) -> Option<&LibraryGate> {
+        self.gates.get(name)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &LibraryGate)> {
+        self.gates.iter()
+    }
+
+    pub fn sorted_keys(&self) -> Vec<String> {
+        let mut keys: Vec<String> = self.gates.keys().cloned().collect();
+        keys.sort();
+        keys
+    }
+
+    // ── CRUD Operations ────────────────────────────────────────────────────────
+
+    pub fn save(&mut self, gate: LibraryGate) {
+        let name = gate.name.clone();
+        let is_update = self.gates.contains_key(&name);
+        
+        self.gates.insert(name.clone(), gate);
+
+        if is_update {
+            let updated_gate = self.gates.get(&name).unwrap().clone();
+            self.update_instances_in_internal_graphs(&name, &updated_gate);
+        }
+    }
+
+    pub fn remove_gate(&mut self, name: &str) {
+        self.gates.remove(name);
+        // Update references inside the remaining library gates
+        for gate in self.gates.values_mut() {
+            gate.graph.remove_all_gates_of_library_name(name);
+        }
+    }
+
+    pub fn rename_gate(&mut self, old_name: &str, new_name: &str) -> bool {
+        if old_name == new_name || new_name.is_empty() || self.gates.contains_key(new_name) {
+            return false;
+        }
+
+        // Update all SavedGate references in the internal graphs
+        for gate in self.gates.values_mut() {
+            gate.graph.rename_saved_gate_references(old_name, new_name);
+        }
+
+        // Swap the key in the HashMap
+        if let Some(mut gate) = self.gates.remove(old_name) {
+            gate.name = new_name.to_string();
+            self.gates.insert(new_name.to_string(), gate);
+            return true;
+        }
+        false
+    }
+
+    // ── Internal Helpers ───────────────────────────────────────────────────────
+
+    fn update_instances_in_internal_graphs(&mut self, gate_name: &str, updated_library_gate: &LibraryGate) {
+        for gate in self.gates.values_mut() {
+            gate.graph.update_saved_gate_instances(gate_name, updated_library_gate);
+        }
+    }
+
+    // ── Persistence ────────────────────────────────────────────────────────────
+
+    pub fn save_to_file(&self) -> Result<(), String> {
+        let file = std::fs::File::create("my_library.lbl")
+            .map_err(|err| format!("Failed to open file on save: {}", err))?;
+        bincode::config::DefaultOptions::new()
+            .with_limit(10 * 1024 * 1024)
+            .serialize_into(file, &self.gates)
+            .map_err(|err| format!("Serialize on save failed: {}", err))
+    }
+
+    pub fn load_from_file() -> Result<Self, String> {
+        let file = std::fs::File::open("my_library.lbl")
+            .map_err(|err| format!("Failed to open file on load: {}", err))?;
+        let gates: HashMap<String, LibraryGate> = bincode::config::DefaultOptions::new()
+            .with_limit(10 * 1024 * 1024)
+            .deserialize_from(file)
+            .map_err(|err| format!("Deserialize on load failed: {}", err))?;
+        Ok(Self { gates })
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  App to Library Bridge Methods
+// ─────────────────────────────────────────────────────────────────────────────
+
+impl LibraryGate {
+    fn from_editor(app: &App) -> Self {
         LibraryGate {
             name:         app.title.clone(),
             input_count:  app.graph.inputs.len(),
@@ -18,120 +125,36 @@ impl LibraryGate{
 }
 
 impl App {
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Library persistence
-    // ─────────────────────────────────────────────────────────────────────────
-
     /// Save the current canvas as a `LibraryGate`.
     pub fn save_current_graph_to_library(&mut self) {
         let new_gate = LibraryGate::from_editor(self);
+        let gate_name = new_gate.name.clone();
+        let is_update = self.library.contains(&gate_name);
+        
+        self.library.save(new_gate);
 
-        if let Some(library_index) = self.library.iter().position(|saved| saved.name == new_gate.name) {
-            self.library[library_index] = new_gate.clone();
-
-            Self::update_saved_gate_instances_in_graph(
-                &mut self.graph,
-                library_index,
-                &new_gate,
-            );
-            
-            let mut library = std::mem::take(&mut self.library);
-            for library_gate in &mut library {
-                Self::update_saved_gate_instances_in_graph(
-                    &mut library_gate.graph,
-                    library_index,
-                    &new_gate,
-                );
-            }
-            self.library = library;
-        } else {
-            self.library.push(new_gate);
-        }
-    }
-
-    /// Refresh every `SavedGate(library_index)` node inside `graph` to match
-    /// the current `updated_library_gate` definition.
-    pub fn update_saved_gate_instances_in_graph(
-        graph: &mut EditorGraph,
-        library_index: usize,
-        updated_library_gate: &LibraryGate,
-    ) {
-        let gate_base = graph.inputs.len() + graph.outputs.len();
-
-        let matching_node_ids: Vec<usize> = graph
-            .nodes
-            .iter()
-            .enumerate()
-            .filter_map(|(gate_index, node)| {
-                if matches!(node.kind, EditorNodeKind::SavedGate(idx) if idx == library_index) {
-                    Some(gate_base + gate_index)
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        graph.wires.retain(|wire| {
-            for &node_id in &matching_node_ids {
-                if wire.to.node == node_id && wire.to.port >= updated_library_gate.input_count {
-                    return false;
-                }
-                if wire.from.node == node_id && wire.from.port >= updated_library_gate.output_count {
-                    return false;
-                }
-            }
-            true
-        });
-
-        for node in graph.nodes.iter_mut() {
-            if !matches!(node.kind, EditorNodeKind::SavedGate(idx) if idx == library_index) {
-                continue;
-            }
-            node.label         = updated_library_gate.name.clone();
-            node.input_count   = updated_library_gate.input_count;
-            node.output_count  = updated_library_gate.output_count;
-            node.input_labels  = updated_library_gate.graph.inputs.clone();
-            node.output_labels = updated_library_gate.graph.outputs.clone();
+        if is_update {
+            let updated_gate = self.library.get(&gate_name).unwrap().clone();
+            self.graph.update_saved_gate_instances(&gate_name, &updated_gate);
         }
     }
 
     pub fn save_library_to_file(&mut self) {
-        fn fallible_save(library: &Vec<LibraryGate>) -> Result<(), String> {
-            let file = std::fs::File::create("my_library.lbl").map_err(|err| format!("Failed to open file on load {}", err.to_string()))?;
-            bincode::config::DefaultOptions::new()
-                .with_limit(10 * 1024 * 1024)
-                .serialize_into(
-                    file, &library
-                )
-                .map_err(|err| format!("Serialize on save failed {}", err.to_string()))
-        }
-        match fallible_save(&self.library) {
-            Ok(_) => (),
-            Err(error)  => self.simulation_error = Some(error.to_string()),
+        if let Err(error) = self.library.save_to_file() {
+            self.simulation_error = Some(error);
         }
     }
 
     pub fn load_library_from_file(&mut self) {
-        fn fallible_load() -> Result<Vec<LibraryGate>, String> {
-            let file = std::fs::File::open("my_library.lbl").map_err(|err| format!("Failed to open file on load {}", err.to_string()))?;
-            bincode::config::DefaultOptions::new()
-                .with_limit(10 * 1024 * 1024)
-                .deserialize_from(file)
-                .map_err(|err| format!("Deserialize on load failed {}", err.to_string()))
-        }
-        match fallible_load() {
+        match Library::load_from_file() {
             Ok(library) => self.library = library,
-            Err(error)  => self.simulation_error = Some(error.to_string()),
+            Err(error)  => self.simulation_error = Some(error),
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Library gate management
-    // ─────────────────────────────────────────────────────────────────────────
-
     /// Load a saved gate back onto the canvas for editing.
-    pub fn open_library_gate_for_editing(&mut self, library_index: usize) {
-        let gate = self.library[library_index].clone();
+    pub fn open_library_gate_for_editing(&mut self, gate_name: &str) {
+        let gate = self.library.get(gate_name).cloned().unwrap();
         self.title              = gate.name;
         self.graph              = gate.graph;
         self.input_states       = vec![false; gate.input_count];
@@ -145,26 +168,27 @@ impl App {
         self.port_to_wire_index = HashMap::new();
     }
 
-    /// Delete a library gate by index.
-    pub fn delete_library_gate(&mut self, deleted_index: usize) {
-        self.graph.remove_all_gates_of_library_index(deleted_index);
-
-        let mut library = std::mem::take(&mut self.library);
-        for library_gate in &mut library {
-            library_gate.graph.remove_all_gates_of_library_index(deleted_index);
-        }
-        self.library = library;
-
-        self.library.remove(deleted_index);
-
-        self.graph.remap_saved_gate_indices_after_library_deletion(deleted_index);
-        let mut library = std::mem::take(&mut self.library);
-        for library_gate in &mut library {
-            library_gate.graph.remap_saved_gate_indices_after_library_deletion(deleted_index);
-        }
-        self.library = library;
+    /// Delete a library gate by name.
+    pub fn delete_library_gate(&mut self, deleted_name: &str) {
+        self.graph.remove_all_gates_of_library_name(deleted_name);
+        self.library.remove_gate(deleted_name);
 
         self.library_rename_index = None;
         self.library_rename_text.clear();
+    }
+
+    /// Rename a library gate and update all references across all graphs.
+    pub fn rename_library_gate(&mut self, old_name: &str, new_name: &str) {
+        if old_name == new_name || new_name.is_empty() || self.library.contains(new_name) {
+            return;
+        }
+
+        self.graph.rename_saved_gate_references(old_name, new_name);
+        
+        if self.library.rename_gate(old_name, new_name) {
+            // Update the visual labels/names on the nodes in the active graph
+            let updated_gate = self.library.get(new_name).unwrap().clone();
+            self.graph.update_saved_gate_instances(new_name, &updated_gate);
+        }
     }
 }

@@ -213,7 +213,7 @@ impl App {
                         } else {
                             std::mem::take(&mut self.new_input_name)
                         };
-                        self.graph.add_input(name); // Changed from .push()
+                        self.graph.add_input(name);
                         self.input_states.push(false);
                     }
                 });
@@ -355,7 +355,7 @@ impl App {
                         } else {
                             std::mem::take(&mut self.new_output_name)
                         };
-                        self.graph.add_output(name); // Changed from .push()
+                        self.graph.add_output(name);
                         self.output_states.push(false);
                     }
                 });
@@ -394,18 +394,19 @@ impl App {
                     );
                     ui.add_space(4.0);
 
-                    let mut gate_to_open:   Option<usize> = None;
-                    let mut gate_to_delete: Option<usize> = None;
-                    let mut gate_to_rename: Option<usize> = None;
+                    let mut gate_to_open:   Option<String> = None;
+                    let mut gate_to_delete: Option<String> = None;
+                    let mut gate_to_rename: Option<String> = None;
                     let mut commit_rename = false;
 
-                    for (library_index, saved_gate) in self.library.iter().enumerate() {
+                    for gate_name in self.library.sorted_keys() {
+                        let saved_gate = self.library.get(&gate_name).unwrap();
                         let button_label = format!(
                             "▣ {}  ({} → {})",
                             saved_gate.name, saved_gate.input_count, saved_gate.output_count
                         );
 
-                        let is_renaming = self.library_rename_index == Some(library_index);
+                        let is_renaming = self.library_rename_index.as_deref() == Some(gate_name.as_str());
 
                         if is_renaming {
                             ui.horizontal(|ui| {
@@ -434,55 +435,39 @@ impl App {
                             ui.label(RichText::new(&saved_gate.name).strong().size(FONT_SIZE_SUBHEAD));
                             ui.separator();
                             if ui.button("📂  Open for editing").clicked() {
-                                gate_to_open = Some(library_index);
+                                gate_to_open = Some(gate_name.clone());
                                 ui.close_menu();
                             }
                             if ui.button("✏  Rename").clicked() {
-                                gate_to_rename = Some(library_index);
+                                gate_to_rename = Some(gate_name.clone());
                                 ui.close_menu();
                             }
                             ui.separator();
                             if ui.button(RichText::new("🗑  Delete").color(Color32::RED)).clicked() {
-                                gate_to_delete = Some(library_index);
+                                gate_to_delete = Some(gate_name.clone());
                                 ui.close_menu();
                             }
                         });
                     }
 
                     if commit_rename {
-                        if let Some(rename_index) = self.library_rename_index {
+                        if let Some(old_name) = self.library_rename_index.take() {
                             let new_name = self.library_rename_text.trim().to_string();
                             if !new_name.is_empty() {
-                                self.library[rename_index].name        = new_name.clone();
-                                let updated_gate = self.library[rename_index].clone();
-                                Self::update_saved_gate_instances_in_graph(
-                                    &mut self.graph,
-                                    rename_index,
-                                    &updated_gate,
-                                );
-                                let mut library = std::mem::take(&mut self.library);
-                                for library_gate in &mut library {
-                                    Self::update_saved_gate_instances_in_graph(
-                                        &mut library_gate.graph,
-                                        rename_index,
-                                        &updated_gate,
-                                    );
-                                }
-                                self.library = library;
+                                self.rename_library_gate(&old_name, &new_name);
                             }
                         }
-                        self.library_rename_index = None;
                         self.library_rename_text.clear();
                     }
-                    if let Some(index) = gate_to_rename {
-                        self.library_rename_text  = self.library[index].name.clone();
-                        self.library_rename_index = Some(index);
+                    if let Some(name) = gate_to_rename {
+                        self.library_rename_text  = name.clone();
+                        self.library_rename_index = Some(name);
                     }
-                    if let Some(index) = gate_to_open {
-                        self.open_library_gate_for_editing(index);
+                    if let Some(name) = gate_to_open {
+                        self.open_library_gate_for_editing(&name);
                     }
-                    if let Some(index) = gate_to_delete {
-                        self.delete_library_gate(index);
+                    if let Some(name) = gate_to_delete {
+                        self.delete_library_gate(&name);
                     }
                 }
             });

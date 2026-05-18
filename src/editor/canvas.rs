@@ -12,7 +12,7 @@ use super::constants::{
     GRID_CELL_SIZE, IO_RAIL_STEP, PORT_RADIUS,
     FONT_SIZE_HEADING, FONT_SIZE_BODY, FONT_SIZE_SUBHEAD,
 };
-// Updated imports:
+
 use super::viewport::snap_to_grid;
 use super::wiring::{canvas_rect_from_two_points, draw_bezier_wire};
 use super::nodes::{input_port_canvas_pos, make_nand_node, make_saved_gate_node, output_port_canvas_pos};
@@ -122,7 +122,6 @@ impl App {
                             self.graph.remove_wire(&wire);
                         }
                     }
-                    // Capture spawn position for the context menu
                     if hovered_wire.is_none() && hovered_gate_index.is_none() {
                         if let Some(pos) = pointer_screen_pos {
                             self.context_menu_spawn_pos = Some(
@@ -160,24 +159,24 @@ impl App {
                                     .italics()
                                     .size(FONT_SIZE_BODY),
                             );
-                            let mut gate_to_spawn: Option<usize> = None;
-                            for (library_index, saved_gate) in self.library.iter().enumerate() {
+                            let mut gate_to_spawn: Option<String> = None;
+                            for (gate_name, saved_gate) in self.library.iter() {
                                 let button_label = format!(
                                     "▣  {}  ({} → {})",
                                     saved_gate.name, saved_gate.input_count, saved_gate.output_count
                                 );
                                 if ui.button(button_label).clicked() {
-                                    gate_to_spawn = Some(library_index);
+                                    gate_to_spawn = Some(gate_name.clone());
                                     ui.close_menu();
                                 }
                             }
-                            if let Some(library_index) = gate_to_spawn {
-                                let saved_gate = &self.library[library_index];
+                            if let Some(gate_name) = gate_to_spawn {
+                                let saved_gate = self.library.get(&gate_name).unwrap();
                                 let input_labels: Vec<String>  = saved_gate.graph.inputs.clone();
                                 let output_labels: Vec<String> = saved_gate.graph.outputs.clone();
                                 self.graph.nodes.push(make_saved_gate_node(
                                     spawn_canvas_pos,
-                                    library_index,
+                                    gate_name,
                                     saved_gate.name.clone(),
                                     input_labels,
                                     output_labels,
@@ -229,7 +228,7 @@ impl App {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Bulk-wire state machine
+    //  Bulk-wire state machine & overlay
     // ─────────────────────────────────────────────────────────────────────────
 
     pub fn update_bulk_wire(
@@ -361,10 +360,6 @@ impl App {
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Port collection for box-select
-    // ─────────────────────────────────────────────────────────────────────────
-
     pub fn collect_ports_in_canvas_rect(
         &self,
         canvas_rect_selection: Rect,
@@ -436,10 +431,6 @@ impl App {
 
         found_ports
     }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Bulk-wire overlay drawing
-    // ─────────────────────────────────────────────────────────────────────────
 
     pub fn draw_bulk_wire_overlay(&self, painter: &Painter, canvas_origin: Pos2, canvas_rect: Rect) {
         match &self.bulk_wire_state {
